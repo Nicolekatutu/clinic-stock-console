@@ -1,5 +1,13 @@
 # CLINIC STOCK CONSOLE
 
+## Live Application
+**Production URL:** https://clinic-stock-console-flame.vercel.app
+
+**Production branch:** `main`
+
+The application is deployed on Vercel and is automatically deployed
+when changes are merged into the `main` branch.
+
 ## Design and Architecture
 
 The main users are clinic staff who need to quickly find an item, check its stock, and correct the stock count when necessary. Since the application may also be used on tablets with unreliable WiFi, I want to keep the user interface simple and avoid unnecessary navigation or complicated state management.
@@ -100,7 +108,14 @@ I decided to use Axios for making API requests and TanStack Query for managing t
 I want to keep the API calls separate from the UI components. For example, product related requests will live in the API layer and the React components will use TanStack Query to consume them.
 
 TanStack Query will also be responsible for caching server responses.
-For updates, such as correcting an item's stock count, I will use a TanStack Query mutation. After a successful update, the relevant product query will be invalidated/refetched so that the UI does not continue displaying stale information.
+For updates, such as correcting an item's stock count, I will use a TanStack Query mutation. For updates, such as correcting an item's stock count, I use a TanStack
+Query mutation. When the PUT succeeds, I update the relevant product
+query and product-list cache using the response from the mutation.
+
+I chose this instead of relying only on a refetch because DummyJSON is a
+mock API and does not persist product mutations in the same way a real
+backend would. A subsequent GET can therefore return the original mock
+data even after a successful PUT.
 
 For errors, I will show a useful error state with a retry option instead of leaving the screen blank.
 
@@ -186,6 +201,66 @@ The application may be used over patchy WiFi, so sending a request for every key
 
 Debouncing reduces unnecessary requests, while making the search parameters part of the query identity ensures that the displayed data corresponds to the user's current search.
 
+### Authentication and token expiry
+
+Users must authenticate before accessing the stock console. Login requests
+`expiresInMins: 1` as required by the assessment.
+
+The access token and refresh token are stored locally. API requests include
+the access token using an Axios request interceptor.
+
+If the API returns a 401 response, the application clears the expired
+authentication tokens and redirects the user to the login screen. The
+current path and query string are preserved, so after signing in the user
+can return to the stock view they were previously using instead of losing
+their place.
+
+I chose this approach instead of silently leaving the user on a broken
+screen because the assessment specifically requires a recoverable expired
+session.
+
+### DummyJSON limitation
+
+DummyJSON does not provide persistent product mutations. A successful
+PUT returns the updated product, but subsequent GET requests can return
+the original mock data.
+To keep the UI consistent during the current session, the application
+updates the TanStack Query cache using the successful PUT response.
+
+# Testing
+
+The project uses Vitest and React Testing Library.
+
+The test suite covers authentication and protected routing, URL state and
+pagination behaviour, inventory loading/error states, search request
+cancellation, stock correction and TanStack Query cache updates, and
+modal interaction behaviour.
+
+Current suite: **10 tests across 4 test files**.
+
+# CI/CD
+
+The project uses GitHub Actions for continuous integration.
+
+The CI workflow runs on every pull request and checks:
+
+- Prettier formatting using `npm run format:check`
+- ESLint using `npm run lint`
+- Vitest using `npm test -- --run`
+- Commit messages using commitlint
+- Production build using `npm run build`
+
+If any required check fails, the CI workflow fails and the pull request
+cannot be considered ready to merge.
+
+The `main` branch is the production branch. Pull requests are reviewed
+and merged into `main`, after which the deployment provider automatically
+deploys the latest version.
+
+Conventional Commits are also enforced locally using commitlint and a
+Husky `commit-msg` hook, so invalid commit messages are rejected before
+they reach the repository.
+
 # AI Reflection
 
 1. What did you use AI for across the four sections?
@@ -208,9 +283,14 @@ AI also helped me identify that I should update the TanStack Query cache using t
 
 4. Give one example where AI output was wrong, incomplete or subtly bad, and how you caught it.
 
-One example was the stock update behavior. The PUT request was successful and returned the updated stock, but the inventory list could still show the old stock after a refetch.
-
-The initial approach relied on fetching the product again after the update. I caught the problem by testing the actual API behavior instead of assuming that a successful PUT meant the data would persist.
+One example was the stock update behavior. The PUT request was successful
+and returned the updated stock, but the inventory list could still show
+the old stock after a refetch. The initial approach relied on fetching the product again after the update. I caught the problem by testing the actual API behavior instead of assuming that a successful PUT meant the data would persist.
+I found that DummyJSON could return the original product data on a later
+GET because it is a mock API. I changed the implementation to update the
+TanStack Query cache using the product returned by the PUT request.
+This was caught through actual testing rather than just reviewing the
+AI-generated code.
 
 5. Name two decisions you made without AI, and why you trusted your own judgment there.
    I chose to use TypeScript for the project. This was based on my own experience and preference when working with React. I was more comfortable having types for the API responses, query parameters, and component props, especially for an assessment where there were several different API states.
